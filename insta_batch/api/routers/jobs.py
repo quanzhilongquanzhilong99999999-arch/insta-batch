@@ -17,7 +17,7 @@ async def list_jobs(
     _: str = Depends(require_api_key),
 ) -> list[JobView]:
     mgr = get_job_manager()
-    return [j.snapshot() for j in mgr.list(limit=limit)]
+    return await mgr.list_views(limit=limit)
 
 
 @router.get("/{job_id}", response_model=JobView)
@@ -26,10 +26,10 @@ async def get_job(
     _: str = Depends(require_api_key),
 ) -> JobView:
     mgr = get_job_manager()
-    job = mgr.get(job_id)
-    if job is None:
+    view = await mgr.get_view(job_id)
+    if view is None:
         raise HTTPException(404, detail="job not found")
-    return job.snapshot()
+    return view
 
 
 @router.delete("/{job_id}", response_model=StandardOK)
@@ -38,6 +38,13 @@ async def cancel_job(
     _: str = Depends(require_api_key),
 ) -> StandardOK:
     mgr = get_job_manager()
-    if not mgr.cancel(job_id):
-        raise HTTPException(409, detail="job not cancellable (missing or already finished)")
+    if not await mgr.cancel(job_id):
+        raise HTTPException(
+            409,
+            detail=(
+                "Job not cancellable on this worker. "
+                "Either it is already finished, or it was submitted to a different worker "
+                "(cross-worker cancel is not supported in this version)."
+            ),
+        )
     return StandardOK(message="cancel signal sent")

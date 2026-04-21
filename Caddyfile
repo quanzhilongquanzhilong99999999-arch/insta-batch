@@ -1,0 +1,81 @@
+# insta-batch Caddyfile
+#
+# No public domain: Caddy issues a self-signed internal TLS cert and
+# serves on :443. Clients must trust Caddy's internal CA (cert on disk
+# inside the caddy_data volume) OR call with TLS verification disabled.
+#
+# IP allow-list is the primary perimeter. Edit the `remote_ip` list
+# below to your callers' public IPs (CIDR blocks allowed).
+#
+# Rate limiting is commented out because stock Caddy does not ship the
+# rate-limit module. To enable, build a custom image with:
+#
+#     FROM caddy:2-builder AS b
+#     RUN xcaddy build --with github.com/mholt/caddy-ratelimit
+#     FROM caddy:2-alpine
+#     COPY --from=b /usr/bin/caddy /usr/bin/caddy
+#
+# Then uncomment the `rate_limit` block below.
+
+{
+    # Turn off the automatic HTTP->HTTPS redirect only for ACME domain
+    # challenges (we have none). Internal TLS auto-redirects anyway.
+    auto_https disable_redirects
+    # Tighten default timeouts so runaway clients can't pile up.
+    servers {
+        timeouts {
+            read_body   30s
+            read_header 10s
+            write       60s
+            idle        120s
+        }
+    }
+}
+
+# ---------------- main HTTPS listener ----------------
+:443 {
+    tls internal
+
+    # --- IP allow-list (EDIT ME) ---
+    @allowed {
+        remote_ip 203.0.113.10 198.51.100.0/24
+        # add more lines / CIDRs here
+    }
+
+    handle @allowed {
+        # --- rate limit placeholder (requires caddy-ratelimit plugin) ---
+        # rate_limit {
+        #     zone per_key {
+        #         key    {http.request.header.X-API-Key}
+        #         events 60
+        #         window 1m
+        #     }
+        # }
+
+        reverse_proxy api:8000 {
+            # Pass through the real client address for logs / downstream rules.
+            header_up X-Real-IP       {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Anything NOT in the allow-list gets 403.
+    handle {
+        respond "Forbidden" 403
+    }
+
+    log {
+        output file /data/access.log {
+            roll_size     50mb
+            roll_keep     5
+            roll_keep_for 720h
+        }
+        format console
+    }
+}
+
+# ---------------- bare HTTP → HTTPS ----------------
+:80 {
+    redir https://{host}{uri} permanent
+}

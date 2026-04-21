@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Venv / local tool state
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Runtime state — MUST NOT bake into image
+sessions/
+logs/
+data/
+config/accounts.yaml
+config/proxies.txt
+
+# VCS / IDE
+.git/
+.gitignore
+.idea/
+.vscode/
+
+# Docs / scratch
+*.md
+!README.md
+ig1.json
+ig2.json
+
+# Artifacts from building docker contexts
+Dockerfile
+docker-compose.yml
+Caddyfile
+.dockerignore

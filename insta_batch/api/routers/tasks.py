@@ -8,7 +8,7 @@ from insta_batch.api.deps import (
     get_factory,
     require_api_key,
 )
-from insta_batch.api.jobs import Job, get_job_manager
+from insta_batch.api.jobs import get_job_manager
 from insta_batch.api.schemas import (
     AccountSelector,
     CommentRequest,
@@ -39,7 +39,6 @@ from insta_batch.tasks.publish import (
     ReelPayload,
 )
 
-
 router = APIRouter(prefix="/v1/tasks", tags=["tasks"])
 
 
@@ -57,19 +56,19 @@ def _select_accounts(pool: AccountPool, sel: AccountSelector) -> list[Account]:
     return picked
 
 
-def _submit(
+async def _enqueue(
     task_type: str,
     task: BaseTask,
     accounts: list[Account],
     payload,
 ) -> JobIdResponse:
-    mgr = get_job_manager()
-
-    async def runner(_: Job) -> TaskStats:
+    async def runner() -> TaskStats:
         return await task.execute(accounts, payload_per_account=payload)
 
-    job = mgr.submit(task_type=task_type, total_accounts=len(accounts), runner=runner)
-    return JobIdResponse(job_id=job.job_id)
+    job_id = await get_job_manager().submit(
+        task_type=task_type, total_accounts=len(accounts), runner=runner
+    )
+    return JobIdResponse(job_id=job_id)
 
 
 # ---------------------------------------------------------------- routes
@@ -85,7 +84,7 @@ async def submit_follow(
 ) -> JobIdResponse:
     accounts = _select_accounts(pool, req.accounts)
     task = FollowTask(cfg, factory)
-    return _submit(
+    return await _enqueue(
         "follow",
         task,
         accounts,
@@ -103,7 +102,7 @@ async def submit_unfollow(
 ) -> JobIdResponse:
     accounts = _select_accounts(pool, req.accounts)
     task = UnfollowTask(cfg, factory)
-    return _submit(
+    return await _enqueue(
         "unfollow",
         task,
         accounts,
@@ -121,7 +120,7 @@ async def submit_like(
 ) -> JobIdResponse:
     accounts = _select_accounts(pool, req.accounts)
     task = LikeTask(cfg, factory)
-    return _submit(
+    return await _enqueue(
         "like",
         task,
         accounts,
@@ -139,7 +138,7 @@ async def submit_comment(
 ) -> JobIdResponse:
     accounts = _select_accounts(pool, req.accounts)
     task = CommentTask(cfg, factory)
-    return _submit("comment", task, accounts, CommentPayload(items=req.items))
+    return await _enqueue("comment", task, accounts, CommentPayload(items=req.items))
 
 
 @router.post("/publish/photo", response_model=JobIdResponse, status_code=202)
@@ -152,7 +151,7 @@ async def submit_publish_photo(
 ) -> JobIdResponse:
     accounts = _select_accounts(pool, req.accounts)
     task = PublishPhotoTask(cfg, factory)
-    return _submit(
+    return await _enqueue(
         "publish_photo",
         task,
         accounts,
@@ -170,7 +169,7 @@ async def submit_publish_reel(
 ) -> JobIdResponse:
     accounts = _select_accounts(pool, req.accounts)
     task = PublishReelTask(cfg, factory)
-    return _submit(
+    return await _enqueue(
         "publish_reel",
         task,
         accounts,
@@ -193,7 +192,7 @@ async def submit_monitor(
 ) -> JobIdResponse:
     accounts = _select_accounts(pool, req.accounts)
     task = MonitorTask(cfg, factory)
-    return _submit(
+    return await _enqueue(
         "monitor",
         task,
         accounts,

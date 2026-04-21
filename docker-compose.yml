@@ -1,0 +1,70 @@
+# insta-batch — production-ish compose stack
+#
+# Services:
+#   redis  — shared JobStore backend (persisted via named volume)
+#   api    — FastAPI + uvicorn, 4 workers sharing Redis
+#   caddy  — reverse proxy, TLS (internal / self-signed), IP allow-list
+#
+# Bring up:
+#   cp .env.example .env                    # then edit
+#   cp config/accounts.yaml.example config/accounts.yaml    # then edit
+#   docker compose up -d --build
+#
+# Caddy listens on 443 with a self-signed cert (since there's no public
+# domain). Clients need to either trust Caddy's internal CA or pass
+# --insecure / verify=False. If you later get a real domain, replace
+# `tls internal` with the domain and remove the `:443` placeholder.
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    # Not published — only reachable from the internal network.
+    networks: [backend]
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./config:/app/config:ro         # accounts.yaml + settings.yaml
+      - sessions_data:/app/sessions     # persist per-account session JSONs
+      - logs_data:/app/logs
+      - data_data:/app/data
+    depends_on:
+      - redis
+    networks: [backend]
+    # Not published — Caddy is the only ingress.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    networks: [backend]
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  redis_data:
+  sessions_data:
+  logs_data:
+  data_data:
+  caddy_data:
+  caddy_config:

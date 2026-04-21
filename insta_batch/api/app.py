@@ -58,7 +58,7 @@ def create_app() -> FastAPI:
             version=__version__,
             accounts_total=len(all_accts),
             accounts_enabled=sum(1 for a in all_accts if a.enabled),
-            jobs_active=get_job_manager().active_count(),
+            jobs_active=await get_job_manager().active_count(),
         )
 
     app.include_router(accounts_router.router)

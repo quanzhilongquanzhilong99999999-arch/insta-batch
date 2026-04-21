@@ -251,13 +251,107 @@ with httpx.Client(base_url=BASE, headers=H, timeout=30) as c:
 
 ### Limits of the MVP
 
-- **Single process** — if you run multiple uvicorn workers, each has its
-  own `JobManager` and jobs are not shared. Stay on one worker, or upgrade
-  the JobManager to SQLite / Redis first.
-- **State lost on restart** — jobs in memory disappear when the process
-  dies. Results already written to `data/` are preserved.
-- **No rate limiting** — add a reverse proxy (Caddy / Nginx) or a
-  middleware if you expose the service publicly.
+- **Cross-worker cancel not supported** — `DELETE /v1/jobs/{id}` only works
+  on the uvicorn worker that originally submitted the job. Cancel returns
+  `409` if the job landed elsewhere. (Fix: add a `cancel_requested` flag
+  in the Redis record and have runners poll it.)
+- **No built-in rate limiting** — stock Caddy doesn't ship rate-limit.
+  See the `Caddyfile` for the custom-build snippet; uncomment the
+  `rate_limit` block once you've swapped in a Caddy image built with
+  `github.com/mholt/caddy-ratelimit`.
+
+---
+
+## Docker deployment
+
+Everything above runs in a 3-service compose stack: **redis** (job store) +
+**api** (FastAPI × 4 uvicorn workers) + **caddy** (reverse proxy with TLS
+and IP allow-list).
+
+### One-command bring-up
+
+```bash
+# Clone onto your Linux server
+git clone https://github.com/quanzhilongquanzhilong99999999-arch/insta-batch.git
+cd insta-batch
+
+# Fill in secrets & accounts
+cp .env.example .env                             # edit API_KEYS, proxy token
+cp config/accounts.yaml.example config/accounts.yaml   # edit credentials
+vim Caddyfile                                    # put caller IPs into @allowed
+
+docker compose up -d --build
+docker compose logs -f api
+```
+
+### What's exposed
+
+| Port | Service | Purpose |
+|---|---|---|
+| `80`  | caddy → 301 | redirect to HTTPS |
+| `443` | caddy | TLS (self-signed internal CA, since no domain) |
+| — | api   | only reachable from inside the compose network |
+| — | redis | only reachable from inside the compose network |
+
+### TLS without a domain
+
+`Caddyfile` uses `tls internal` — Caddy generates a self-signed CA and
+certificate on first boot. Callers have two options:
+
+- **Trust Caddy's root CA**: copy `data/caddy/pki/authorities/local/root.crt`
+  out of the `caddy_data` volume onto each caller machine's trust store.
+- **Skip verification**: call with `curl -k` / `httpx.Client(verify=False)`.
+  Fine when the IP allow-list is doing the real authentication work.
+
+When you later acquire a real domain, change `:443` in the Caddyfile to
+your hostname (e.g. `api.example.com`) and drop `tls internal` — Caddy
+will auto-issue Let's Encrypt.
+
+### Multi-worker + Redis
+
+The compose stack sets `REDIS_URL=redis://redis:6379/0` on the `api`
+service, so all 4 uvicorn workers share the same `JobStore`. Without
+`REDIS_URL` set, the API silently falls back to the in-memory store —
+single-worker only.
+
+### IP allow-list (required)
+
+The default `Caddyfile` allows only example IPs (`203.0.113.10`,
+`198.51.100.0/24`). **The service returns `403` for everything else**
+until you edit the `@allowed` block with your callers' real public IPs.
+Apply changes without downtime:
+
+```bash
+docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+```
+
+### Persisted state
+
+| Volume | Contents |
+|---|---|
+| `redis_data`    | append-only Redis log (jobs, index, cancellation flags) |
+| `sessions_data` | per-account session JSONs (from `login_and_save`) |
+| `logs_data`     | `insta_batch.log` rotation |
+| `data_data`     | task output (monitor snapshots etc.) |
+| `caddy_data`    | self-signed CA, access logs |
+
+All survive `docker compose down`; use `docker compose down -v` to wipe.
+
+### Operational cheatsheet
+
+```bash
+# Tail api logs across all 4 workers
+docker compose logs -f api
+
+# Peek at active jobs
+docker compose exec redis redis-cli ZRANGE insta_batch:jobs:index 0 -1 WITHSCORES
+
+# Reload accounts.yaml without downtime (all workers refresh)
+curl -k https://your-host/v1/accounts/reload -X POST -H "X-API-Key: <key>"
+
+# Scale uvicorn workers (re-build image with a different --workers flag)
+# or use compose deploy.replicas if you split uvicorn into separate containers
+```
 
 ---
 
