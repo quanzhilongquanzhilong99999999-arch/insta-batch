@@ -167,6 +167,10 @@ Everything above can also be driven over HTTP. Every task endpoint returns
 `/v1/jobs/{job_id}` for progress and results. Authenticate with an
 `X-API-Key` header.
 
+> 📖 **Full reference — every endpoint, request/response schema, status
+> codes, and multi-language client examples — is in
+> [`docs/API.md`](docs/API.md).** The sections below are a quick overview.
+
 ### Start the server
 
 ```bash
@@ -180,7 +184,7 @@ uvicorn insta_batch.api.app:create_app --factory --host 0.0.0.0 --port 8000
 
 Then open **http://localhost:8000/docs** for the live Swagger UI.
 
-### Endpoints
+### Endpoints (overview)
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -200,6 +204,9 @@ Then open **http://localhost:8000/docs** for the live Swagger UI.
 | `GET` | `/v1/jobs/{job_id}` | job status + per-account results |
 | `DELETE` | `/v1/jobs/{job_id}` | cancel a running job |
 
+See [`docs/API.md`](docs/API.md) for the request/response body of each
+endpoint, error codes, and the job lifecycle state diagram.
+
 ### Account selection
 
 Every task body accepts an `accounts` object to pick which accounts run it:
@@ -210,44 +217,20 @@ Every task body accepts an `accounts` object to pick which accounts run it:
 {"accounts": {}}                                 // all enabled accounts
 ```
 
-### curl example
+### Quick taste
 
 ```bash
-# Submit
-curl -X POST http://localhost:8000/v1/tasks/follow \
-  -H "X-API-Key: random-key-1" \
-  -H "Content-Type: application/json" \
-  -d '{"accounts":{"tags":["group_a"]},"usernames":["instagram","natgeo"]}'
-# → {"job_id": "ba2073f29fbd45b8..."}
+# Submit — returns 202 {"job_id": "..."}
+curl -X POST https://localhost/v1/tasks/follow \
+  -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"accounts":{"tags":["group_a"]},"usernames":["instagram"]}'
 
-# Poll
-curl http://localhost:8000/v1/jobs/ba2073f29fbd45b8... \
-  -H "X-API-Key: random-key-1"
+# Poll — returns status, progress, per-account results
+curl https://localhost/v1/jobs/<job_id> -H "X-API-Key: $KEY"
 ```
 
-### Python client example
-
-```python
-import httpx, time
-
-KEY = "random-key-1"
-BASE = "http://localhost:8000"
-H = {"X-API-Key": KEY}
-
-with httpx.Client(base_url=BASE, headers=H, timeout=30) as c:
-    r = c.post("/v1/tasks/follow", json={
-        "accounts": {"tags": ["group_a"]},
-        "usernames": ["instagram"],
-    }).raise_for_status()
-    job_id = r.json()["job_id"]
-
-    while True:
-        job = c.get(f"/v1/jobs/{job_id}").raise_for_status().json()
-        if job["status"] in ("completed", "failed", "canceled"):
-            print(job)
-            break
-        time.sleep(2)
-```
+Full bash, Python (sync + async), and TypeScript examples in
+[`docs/API.md#end-to-end-examples`](docs/API.md#end-to-end-examples).
 
 ### Limits of the MVP
 
