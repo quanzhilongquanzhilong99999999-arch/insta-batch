@@ -64,16 +64,23 @@ insta-batch/
 │   │   ├── proxy_provider.py      # ApiProxyProvider / FileProxyProvider
 │   │   ├── logger.py              # rich console + file logging
 │   │   └── utils.py               # jittered_sleep, chunked
-│   └── tasks/
-│       ├── base.py                # BaseTask (concurrency + retry + session restore)
-│       ├── follow.py              # FollowTask / UnfollowTask
-│       ├── like_comment.py        # LikeTask / CommentTask
-│       ├── publish.py             # PublishPhotoTask / PublishReelTask
-│       ├── monitor.py             # MonitorTask (JSONL snapshot to data/)
-│       └── register.py            # RegisterEmailTask / RegisterSmsTask
+│   ├── tasks/
+│   │   ├── base.py                # BaseTask (concurrency + retry + session restore)
+│   │   ├── follow.py              # FollowTask / UnfollowTask
+│   │   ├── like_comment.py        # LikeTask / CommentTask
+│   │   ├── publish.py             # PublishPhotoTask / PublishReelTask
+│   │   ├── monitor.py             # MonitorTask (JSONL snapshot to data/)
+│   │   └── register.py            # RegisterEmailTask / RegisterSmsTask
+│   └── api/
+│       ├── app.py                 # FastAPI application factory
+│       ├── schemas.py             # Pydantic request/response models
+│       ├── deps.py                # API key auth + cached singletons
+│       ├── jobs.py                # in-memory JobManager
+│       └── routers/               # /v1/accounts, /v1/tasks, /v1/jobs
 ├── scripts/
 │   ├── _common.py                 # bootstrap (config + logging + factory)
 │   ├── login_and_save.py          # warm the session cache
+│   ├── run_api.py                 # start the HTTP API (uvicorn)
 │   ├── run_follow.py
 │   ├── run_like.py
 │   ├── run_publish.py
@@ -150,6 +157,107 @@ diversity. Supported presets: `SAMSUNG_A16`, `SAMSUNG_S23`, `SAMSUNG_A54`,
 `run_register.py` is a **skeleton**. You must implement an `EmailCodeSignupProvider`
 (or `PhoneSmsCodeProvider`) that pulls the verification code from your inbox
 or SMS service. The script will refuse to run until you do.
+
+---
+
+## HTTP API
+
+Everything above can also be driven over HTTP. Every task endpoint returns
+**`202 Accepted` + `{"job_id": "..."}` immediately**; the caller polls
+`/v1/jobs/{job_id}` for progress and results. Authenticate with an
+`X-API-Key` header.
+
+### Start the server
+
+```bash
+# .env must contain at least API_KEYS
+API_KEYS=random-key-1,random-key-2
+
+python scripts\run_api.py        # default 0.0.0.0:8000
+# or:
+uvicorn insta_batch.api.app:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+Then open **http://localhost:8000/docs** for the live Swagger UI.
+
+### Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/` | service banner (no auth) |
+| `GET` | `/v1/health` | counts of accounts + active jobs |
+| `GET` | `/v1/accounts` | list all accounts + session state |
+| `GET` | `/v1/accounts/{username}` | inspect one account |
+| `POST` | `/v1/accounts/reload` | reload config/accounts.yaml without restart |
+| `POST` | `/v1/tasks/follow` | batch follow (returns job_id) |
+| `POST` | `/v1/tasks/unfollow` | batch unfollow |
+| `POST` | `/v1/tasks/like` | batch like / unlike |
+| `POST` | `/v1/tasks/comment` | batch comment |
+| `POST` | `/v1/tasks/publish/photo` | each account posts the same photo |
+| `POST` | `/v1/tasks/publish/reel` | each account posts the same reel |
+| `POST` | `/v1/tasks/monitor` | snapshot target profiles to data/ |
+| `GET` | `/v1/jobs` | list recent jobs |
+| `GET` | `/v1/jobs/{job_id}` | job status + per-account results |
+| `DELETE` | `/v1/jobs/{job_id}` | cancel a running job |
+
+### Account selection
+
+Every task body accepts an `accounts` object to pick which accounts run it:
+
+```json
+{"accounts": {"usernames": ["alice", "bob"]}}   // explicit
+{"accounts": {"tags": ["group_a"]}}             // by tag
+{"accounts": {}}                                 // all enabled accounts
+```
+
+### curl example
+
+```bash
+# Submit
+curl -X POST http://localhost:8000/v1/tasks/follow \
+  -H "X-API-Key: random-key-1" \
+  -H "Content-Type: application/json" \
+  -d '{"accounts":{"tags":["group_a"]},"usernames":["instagram","natgeo"]}'
+# → {"job_id": "ba2073f29fbd45b8..."}
+
+# Poll
+curl http://localhost:8000/v1/jobs/ba2073f29fbd45b8... \
+  -H "X-API-Key: random-key-1"
+```
+
+### Python client example
+
+```python
+import httpx, time
+
+KEY = "random-key-1"
+BASE = "http://localhost:8000"
+H = {"X-API-Key": KEY}
+
+with httpx.Client(base_url=BASE, headers=H, timeout=30) as c:
+    r = c.post("/v1/tasks/follow", json={
+        "accounts": {"tags": ["group_a"]},
+        "usernames": ["instagram"],
+    }).raise_for_status()
+    job_id = r.json()["job_id"]
+
+    while True:
+        job = c.get(f"/v1/jobs/{job_id}").raise_for_status().json()
+        if job["status"] in ("completed", "failed", "canceled"):
+            print(job)
+            break
+        time.sleep(2)
+```
+
+### Limits of the MVP
+
+- **Single process** — if you run multiple uvicorn workers, each has its
+  own `JobManager` and jobs are not shared. Stay on one worker, or upgrade
+  the JobManager to SQLite / Redis first.
+- **State lost on restart** — jobs in memory disappear when the process
+  dies. Results already written to `data/` are preserved.
+- **No rate limiting** — add a reverse proxy (Caddy / Nginx) or a
+  middleware if you expose the service publicly.
 
 ---
 
