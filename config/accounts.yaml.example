@@ -1,0 +1,23 @@
+# Copy this file to accounts.yaml (ignored by git) and fill in real credentials.
+accounts:
+  - username: demo_account_1
+    password: "CHANGE_ME"
+    # Optional per-account overrides:
+    # device_preset: PIXEL_8
+    # proxy: "user:pass@1.2.3.4:8080"
+    # email: demo1@example.com
+    # phone: "+1-555-0100"
+    enabled: true
+    tags: [group_a]
+
+  - username: demo_account_2
+    password: "CHANGE_ME"
+    enabled: true
+    tags: [group_a, group_b]
+
+  - username: demo_account_3
+    password: "CHANGE_ME"
+    device_preset: SAMSUNG_S23
+    proxy: "user:pass@5.6.7.8:8080"
+    enabled: false          # temporarily disabled
+    tags: [group_b]

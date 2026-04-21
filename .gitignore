@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.eggs/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets & runtime state — NEVER commit
+.env
+config/accounts.yaml
+config/proxies.txt
+sessions/*.json
+sessions/*.jsonl
+
+# Task output / logs
+logs/*.log
+data/*.jsonl
+data/*.json
+data/*.csv
+data/*.jpg
+data/*.jpeg
+data/*.png
+data/*.mp4
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Keep empty output dirs
+!sessions/.gitkeep
+!logs/.gitkeep
+!data/.gitkeep

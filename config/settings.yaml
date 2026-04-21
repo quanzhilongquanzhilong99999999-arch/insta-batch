@@ -1,0 +1,28 @@
+# Global runtime settings for insta-batch.
+# Override any field here; unset fields fall back to defaults in insta_batch/core/config.py.
+
+concurrency:
+  max_parallel_accounts: 5        # how many accounts run in parallel
+  per_action_delay_min: 2.0       # jitter window between actions (seconds)
+  per_action_delay_max: 6.0
+
+retry:
+  network_error_retry_limit: 3
+  network_error_retry_delay: 1.5
+  change_proxies: true            # switch proxy after retries exhausted
+  proxy_change_limit: 5
+
+proxy:
+  enabled: true
+  source: api                     # api | file | none
+  api_url: "https://your-proxy-provider.example/api/get"
+  api_token_env: PROXY_API_TOKEN  # name of env var holding the API token
+  api_cache_seconds: 60
+  file_path: "config/proxies.txt" # used only when source=file
+
+device:
+  preset: random                  # random | SAMSUNG_A16 | SAMSUNG_S23 | SAMSUNG_A54 | PIXEL_8 | REDMI_NOTE_13_PRO
+  locale: en_US
+  timezone: America/New_York
+
+log_level: INFO
